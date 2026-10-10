@@ -1,0 +1,51 @@
+import { eq } from "drizzle-orm";
+import { generateLessonContent } from "@/lib/ai";
+import { db } from "@/lib/db";
+import { getLesson, localDateString, parseLesson, wordsToLearn } from "@/lib/lessons";
+import { lessons } from "@/lib/schema";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST() {
+  const selected = wordsToLearn();
+
+  if (selected.length < 5) {
+    return Response.json(
+      { error: "No words to learn yet. Add words in Vocabulary first." },
+      { status: 400 },
+    );
+  }
+
+  const snapshot = selected.map((word) => ({
+    id: word.id,
+    word: word.word,
+    level: word.level,
+  }));
+
+  const created = db
+    .insert(lessons)
+    .values({
+      studyDate: localDateString(),
+      status: "generated",
+      wordsJson: JSON.stringify(snapshot),
+    })
+    .returning()
+    .get();
+
+  let aiError = null;
+  try {
+    const exercises = await generateLessonContent(snapshot);
+    db.update(lessons)
+      .set({ exercisesJson: JSON.stringify(exercises) })
+      .where(eq(lessons.id, created.id))
+      .run();
+  } catch (err) {
+    aiError = err.message;
+  }
+
+  return Response.json(
+    { lesson: parseLesson(getLesson(created.id)), aiError },
+    { status: 201 },
+  );
+}

@@ -1,0 +1,26 @@
+{
+  "characters": [
+    {
+      "id": "aiko",
+      "name": "Aiko",
+      "gender": "female",
+      "kind": "anime",
+      "avatar": "/mascots/aiko.png",
+      "personality": ["playful", "teasing", "sharp"],
+      "bio": "A playful anime girl who teases the user into learning faster.",
+      "speechStyle": "teasing, witty, full of playful challenges",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "ren",
+      "name": "Ren",
+      "gender": "male",
+      "kind": "anime",
+      "avatar": "/mascots/ren.png",
+      "personality": ["depressed", "relatable", "sarcastic"],
+      "bio": "A tired anime guy who is sarcastic but genuinely wants to help.",
+      "speechStyle": "deadpan, self-deprecating, dry humor",
+      "color": "#6366f1"
+    }
+  ]
+}
