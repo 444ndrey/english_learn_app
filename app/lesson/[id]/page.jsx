@@ -1,17 +1,36 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Check, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, RefreshCw, X } from "lucide-react";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
 import Input from "@/components/Input";
+import WordInfo from "@/components/WordInfo";
 import { useToast } from "@/components/ToastProvider";
 import { findCharacter } from "@/lib/characters";
+import { reactionLine, stageCharacter } from "@/lib/reactions";
+
+const STAGE_LABELS = {
+  vocabulary: "Vocabulary",
+  translations: "Translation",
+  reading: "Reading",
+};
 
 function normalize(value) {
   return String(value ?? "").trim().toLowerCase();
+}
+
+function acceptedForms(blank) {
+  if (Array.isArray(blank?.accept) && blank.accept.length > 0) return blank.accept;
+  return [blank?.answer ?? blank?.word ?? ""].filter(Boolean);
+}
+
+function isAccepted(answer, blank) {
+  const norm = normalize(answer);
+  if (!norm) return false;
+  return acceptedForms(blank).some((form) => normalize(form) === norm);
 }
 
 function speakerSides(dialogue) {
@@ -37,8 +56,12 @@ function Dialogue({ dialogue, values, onChange, disabled, feedback }) {
 
         return (
           <div className={`chat-line ${sides[i]}`} key={i}>
-            <div className="chat-avatar" style={{ background: color }}>
-              {line.speaker.charAt(0)}
+            <div className="chat-avatar" style={{ borderColor: color }}>
+              {character?.avatar ? (
+                <img src={character.avatar} alt={line.speaker} />
+              ) : (
+                line.speaker.charAt(0)
+              )}
             </div>
             <div className="chat-body">
               <span className="chat-speaker" style={{ color }}>
@@ -60,6 +83,7 @@ function Dialogue({ dialogue, values, onChange, disabled, feedback }) {
                             onChange={(e) => onChange(index, e.target.value)}
                             disabled={disabled}
                             autoFocus={index === 0}
+                            aria-label={`Missing word ${index + 1}`}
                             style={{
                               width: `${Math.max(5, (values[index]?.length ?? 0) + 1)}ch`,
                             }}
@@ -83,6 +107,28 @@ function Dialogue({ dialogue, values, onChange, disabled, feedback }) {
   );
 }
 
+function Mascot({ characterId, line }) {
+  const character = findCharacter(characterId);
+  const color = character?.color ?? "var(--accent)";
+  return (
+    <div className="mascot-line">
+      <div className="chat-avatar" style={{ borderColor: color }}>
+        {character?.avatar ? (
+          <img src={character.avatar} alt={character?.name ?? characterId} />
+        ) : (
+          characterId.charAt(0)
+        )}
+      </div>
+      <div className="mascot-bubble">
+        <span className="chat-speaker" style={{ color }}>
+          {character?.name ?? characterId}
+        </span>
+        <span>{line}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function LessonPage() {
   const { id } = useParams();
   const { toast } = useToast();
@@ -92,11 +138,14 @@ export default function LessonPage() {
   const [blankAnswers, setBlankAnswers] = useState([]);
   const [translationAnswers, setTranslationAnswers] = useState([]);
   const [readingAnswers, setReadingAnswers] = useState([]);
-  const [checked, setChecked] = useState(false);
+  const [stageIndex, setStageIndex] = useState(0);
+  const [stageChecked, setStageChecked] = useState(false);
   const [vocabFeedback, setVocabFeedback] = useState(null);
   const [aiFeedback, setAiFeedback] = useState([]);
+  const [mascot, setMascot] = useState("");
   const [summary, setSummary] = useState(null);
   const [busy, setBusy] = useState(false);
+  const resultsRef = useRef([]);
 
   useEffect(() => {
     (async () => {
@@ -113,8 +162,18 @@ export default function LessonPage() {
 
   const content = lesson?.content;
   const vocabulary = content?.vocabulary;
+  const blanks = vocabulary?.blanks ?? [];
   const translations = content?.translations ?? [];
   const reading = content?.reading ?? null;
+
+  const stages = [];
+  if (vocabulary?.dialogue?.length) stages.push("vocabulary");
+  if (translations.length) stages.push("translations");
+  if (reading) stages.push("reading");
+
+  const wordById = new Map(
+    (lesson?.words ?? []).map((word) => [Number(word.id), word]),
+  );
 
   function setBlank(index, value) {
     setBlankAnswers((prev) => {
@@ -153,80 +212,93 @@ export default function LessonPage() {
     return data.results ?? [];
   }
 
-  async function check() {
-    const blanks = vocabulary?.blanks ?? [];
-    const allFilled =
-      blanks.every((_, i) => (blankAnswers[i] ?? "").trim()) &&
-      translations.every((_, i) => (translationAnswers[i] ?? "").trim()) &&
-      (!reading ||
-        reading.questions.every((_, i) => (readingAnswers[i] ?? "").trim()));
+  function stageFilled(stage) {
+    if (stage === "vocabulary") {
+      return blanks.every((_, i) => (blankAnswers[i] ?? "").trim());
+    }
+    if (stage === "translations") {
+      return translations.every((_, i) => (translationAnswers[i] ?? "").trim());
+    }
+    if (stage === "reading") {
+      return reading.questions.every((_, i) => (readingAnswers[i] ?? "").trim());
+    }
+    return true;
+  }
 
-    if (!allFilled) {
+  async function checkStage() {
+    const stage = stages[stageIndex];
+
+    if (!stageFilled(stage)) {
       toast("Fill in all the answers first", "info");
       return;
     }
 
-    const vocabResult = blanks.map((blank, i) => ({
-      type: "vocabulary",
-      wordId: blank.wordId,
-      label: blank.word,
-      answer: blankAnswers[i] ?? "",
-      expected: blank.word,
-      correct: normalize(blankAnswers[i]) === normalize(blank.word),
-    }));
-    setVocabFeedback(vocabResult);
+    if (stage === "vocabulary") {
+      const feedback = blanks.map((blank, i) => ({
+        type: "vocabulary",
+        wordId: blank.wordId,
+        label: blank.word,
+        answer: blankAnswers[i] ?? "",
+        expected: blank.answer ?? blank.word,
+        correct: isAccepted(blankAnswers[i], blank),
+      }));
+      setVocabFeedback(feedback);
+      resultsRef.current = [...resultsRef.current, ...feedback];
+      setMascot(
+        reactionLine(
+          stageCharacter(stageIndex),
+          feedback.filter((item) => item.correct).length,
+          feedback.length,
+          stageIndex,
+        ),
+      );
+      setStageChecked(true);
+      return;
+    }
 
-    const items = [
-      ...translations.map((t, i) => ({
-        type: "translation",
-        prompt: t.prompt,
-        reference: t.reference,
-        answer: translationAnswers[i] ?? "",
-      })),
-      ...(reading
-        ? reading.questions.map((q, i) => ({
-            type: "reading",
-            prompt: q.question,
-            reference: q.reference,
-            answer: readingAnswers[i] ?? "",
-          }))
-        : []),
-    ];
+    const source = stage === "reading" ? reading.questions : translations;
+    const answers = stage === "reading" ? readingAnswers : translationAnswers;
+    const items = source.map((item, i) => ({
+      type: stage === "reading" ? "reading" : "translation",
+      prompt: stage === "reading" ? item.question : item.prompt,
+      reference: item.reference,
+      answer: answers[i] ?? "",
+    }));
 
     setBusy(true);
     const evaluated = items.length ? await evaluate(items) : [];
     setBusy(false);
+    setAiFeedback(evaluated);
 
-    const translationResults = translations.map((t, i) => ({
-      type: "translation",
-      wordId: t.wordId,
-      label: t.word,
-      answer: translationAnswers[i] ?? "",
-      expected: t.reference,
+    const feedback = source.map((item, i) => ({
+      type: stage === "reading" ? "reading" : "translation",
+      wordId: item.wordId,
+      label: stage === "reading" ? item.question : item.word,
+      answer: answers[i] ?? "",
+      expected: item.reference,
       correct: Boolean(evaluated[i]?.correct),
     }));
 
-    const readingResults = reading
-      ? reading.questions.map((q, i) => ({
-          type: "reading",
-          wordId: null,
-          label: q.question,
-          answer: readingAnswers[i] ?? "",
-          expected: q.reference,
-          correct: Boolean(evaluated[translations.length + i]?.correct),
-        }))
-      : [];
+    resultsRef.current = [...resultsRef.current, ...feedback];
+    setMascot(
+      reactionLine(
+        stageCharacter(stageIndex),
+        feedback.filter((item) => item.correct).length,
+        feedback.length,
+        stageIndex,
+      ),
+    );
+    setStageChecked(true);
+  }
 
-    setAiFeedback(evaluated);
-    setChecked(true);
-
+  async function finish() {
+    setBusy(true);
     const res = await fetch(`/api/lessons/${id}/complete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        results: [...vocabResult, ...translationResults, ...readingResults],
-      }),
+      body: JSON.stringify({ results: resultsRef.current }),
     });
+    setBusy(false);
 
     if (!res.ok) {
       toast("Failed to save lesson result", "error");
@@ -235,19 +307,34 @@ export default function LessonPage() {
 
     const data = await res.json();
     setSummary(data.result);
+    setMascot(reactionLine("aiko", data.result.correct, data.result.total, 1));
     toast(
       `Lesson done: ${data.result.correct}/${data.result.total}`,
       data.result.correct === data.result.total ? "success" : "info",
     );
   }
 
+  async function nextStage() {
+    if (stageIndex < stages.length - 1) {
+      setStageIndex((i) => i + 1);
+      setStageChecked(false);
+      setAiFeedback([]);
+      setMascot("");
+      return;
+    }
+    await finish();
+  }
+
   function restart() {
+    resultsRef.current = [];
     setBlankAnswers([]);
     setTranslationAnswers([]);
     setReadingAnswers([]);
-    setChecked(false);
+    setStageIndex(0);
+    setStageChecked(false);
     setVocabFeedback(null);
     setAiFeedback([]);
+    setMascot("");
     setSummary(null);
   }
 
@@ -270,12 +357,16 @@ export default function LessonPage() {
     );
   }
 
-  const hasContent = vocabulary?.dialogue?.length;
+  const hasContent = stages.length > 0;
+  const isMistakes = lesson.category === "mistakes";
+  const stage = stages[stageIndex];
 
   return (
     <main className="wrap">
       <header className="head">
-        <h1>Lesson · {lesson.studyDate}</h1>
+        <h1>
+          {isMistakes ? "Mistakes lesson" : "Lesson"} · {lesson.studyDate}
+        </h1>
         <Link href="/" className="link">
           <ArrowLeft size={14} /> Dashboard
         </Link>
@@ -286,7 +377,7 @@ export default function LessonPage() {
         <ul className="word-chips">
           {lesson.words.map((word) => (
             <li key={word.id} className="word-chip">
-              {word.word}
+              <WordInfo word={word} />
               <span className="chip-level">L{word.level}</span>
             </li>
           ))}
@@ -300,22 +391,105 @@ export default function LessonPage() {
             lesson again.
           </p>
         </Card>
+      ) : summary ? (
+        <Card>
+          <div className="block-head">
+            <h2>
+              {isMistakes && summary.mistakes.length === 0
+                ? "Mistakes lesson passed"
+                : "Lesson complete"}
+            </h2>
+          </div>
+          <p className="muted">
+            {isMistakes && summary.mistakes.length === 0
+              ? "All clear — the practiced words went up a level."
+              : `You got ${summary.correct} of ${summary.total} correct.`}
+          </p>
+          {mascot && <Mascot characterId="aiko" line={mascot} />}
+          {summary.mistakes.length > 0 && (
+            <div className="mistakes">
+              <p className="strong">Mistakes</p>
+              <ul>
+                {summary.mistakes.map((mistake, i) => (
+                  <li key={i}>
+                    <span className="strong">{mistake.label}</span> — your
+                    answer: &ldquo;{mistake.answer || "—"}&rdquo;
+                    {mistake.expected ? (
+                      <> · right: &ldquo;{mistake.expected}&rdquo;</>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="row-actions">
+            <Button onClick={restart}>
+              <RefreshCw size={16} />
+              Pass again
+            </Button>
+            <Link href="/" className="btn primary">
+              Back to dashboard
+            </Link>
+          </div>
+        </Card>
       ) : (
         <>
-          <Card>
-            <div className="block-head">
-              <h2>Fill in the blanks</h2>
+          {stages.length > 1 && (
+            <div className="steps">
+              {stages.map((key, i) => (
+                <span
+                  key={key}
+                  className={`step ${i === stageIndex ? "active" : ""} ${
+                    i < stageIndex ? "done" : ""
+                  }`}
+                >
+                  {STAGE_LABELS[key]}
+                </span>
+              ))}
             </div>
-            <Dialogue
-              dialogue={vocabulary.dialogue}
-              values={blankAnswers}
-              onChange={setBlank}
-              disabled={checked}
-              feedback={vocabFeedback}
-            />
-          </Card>
+          )}
 
-          {translations.length > 0 && (
+          {stage === "vocabulary" && (
+            <Card>
+              <div className="block-head">
+                <h2>Fill in the blanks</h2>
+              </div>
+              <Dialogue
+                dialogue={vocabulary.dialogue}
+                values={blankAnswers}
+                onChange={setBlank}
+                disabled={stageChecked}
+                feedback={vocabFeedback}
+              />
+              {stageChecked &&
+                vocabFeedback?.some((item) => !item.correct) && (
+                  <div className="corrections">
+                    <p className="strong">Corrections</p>
+                    <ul>
+                      {vocabFeedback
+                        .filter((item) => !item.correct)
+                        .map((item, i) => {
+                          const record = wordById.get(Number(item.wordId));
+                          return (
+                            <li key={i}>
+                              <span className="strong">{item.expected}</span>
+                              {record?.definition ? ` — ${record.definition}` : ""}
+                              {record?.example ? (
+                                <span className="word-tip-ex">
+                                  {" "}
+                                  &ldquo;{record.example}&rdquo;
+                                </span>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                    </ul>
+                  </div>
+                )}
+            </Card>
+          )}
+
+          {stage === "translations" && (
             <Card>
               <div className="block-head">
                 <h2>Translate into English</h2>
@@ -329,20 +503,25 @@ export default function LessonPage() {
                     placeholder="Your English translation…"
                     value={translationAnswers[i] ?? ""}
                     onChange={(e) => setTranslation(i, e.target.value)}
-                    disabled={checked}
+                    disabled={stageChecked}
+                    className="translation"
                   />
-                  {checked && aiFeedback[i] && (
+                  {stageChecked && aiFeedback[i] && (
                     <p className={`msg ${aiFeedback[i].correct ? "ok" : "err"}`}>
                       {aiFeedback[i].correct ? (
                         <>
                           <Check size={14} /> Correct
-                          {aiFeedback[i].feedback ? ` — ${aiFeedback[i].feedback}` : ""}
+                          {aiFeedback[i].feedback
+                            ? ` — ${aiFeedback[i].feedback}`
+                            : ""}
                         </>
                       ) : (
                         <>
                           <X size={14} /> Right answer: &ldquo;
                           {translation.reference}&rdquo;
-                          {aiFeedback[i].feedback ? ` — ${aiFeedback[i].feedback}` : ""}
+                          {aiFeedback[i].feedback
+                            ? ` — ${aiFeedback[i].feedback}`
+                            : ""}
                         </>
                       )}
                     </p>
@@ -352,7 +531,7 @@ export default function LessonPage() {
             </Card>
           )}
 
-          {reading && (
+          {stage === "reading" && (
             <Card>
               <div className="block-head">
                 <h2>{reading.title}</h2>
@@ -360,7 +539,7 @@ export default function LessonPage() {
               <p className="reading-passage">{reading.passage}</p>
               <div className="reading-questions">
                 {reading.questions.map((question, i) => {
-                  const feedback = aiFeedback[translations.length + i];
+                  const feedback = aiFeedback[i];
                   return (
                     <div className="reading-question" key={i}>
                       <label htmlFor={`q-${i}`}>
@@ -370,10 +549,10 @@ export default function LessonPage() {
                         id={`q-${i}`}
                         value={readingAnswers[i] ?? ""}
                         onChange={(e) => setReading(i, e.target.value)}
-                        disabled={checked}
+                        disabled={stageChecked}
                         placeholder="Your answer…"
                       />
-                      {checked && feedback && (
+                      {stageChecked && feedback && (
                         <p className={`msg ${feedback.correct ? "ok" : "err"}`}>
                           {feedback.correct ? (
                             <>
@@ -396,50 +575,27 @@ export default function LessonPage() {
             </Card>
           )}
 
-          {!checked ? (
-            <div className="row-actions">
-              <Button variant="primary" onClick={check} disabled={busy}>
-                <Check size={16} />
-                {busy ? "Checking…" : "Check lesson"}
-              </Button>
-            </div>
-          ) : summary ? (
-            <Card>
-              <div className="block-head">
-                <h2>Lesson complete</h2>
-              </div>
-              <p className="muted">
-                You got {summary.correct} of {summary.total} correct.
-              </p>
-              {summary.mistakes.length > 0 && (
-                <div className="mistakes">
-                  <p className="strong">Mistakes</p>
-                  <ul>
-                    {summary.mistakes.map((mistake, i) => (
-                      <li key={i}>
-                        <span className="strong">{mistake.label}</span> — your
-                        answer: &ldquo;{mistake.answer || "—"}&rdquo;
-                        {mistake.expected ? (
-                          <> · right: &ldquo;{mistake.expected}&rdquo;</>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              <div className="row-actions">
-                <Button onClick={restart}>
-                  <RefreshCw size={16} />
-                  Pass again
-                </Button>
-                <Link href="/" className="btn primary">
-                  Back to dashboard
-                </Link>
-              </div>
-            </Card>
-          ) : (
-            <p className="hint">Saving result…</p>
+          {stageChecked && mascot && (
+            <Mascot characterId={stageCharacter(stageIndex)} line={mascot} />
           )}
+
+          <div className="row-actions">
+            {!stageChecked ? (
+              <Button variant="primary" onClick={checkStage} disabled={busy}>
+                <Check size={16} />
+                {busy
+                  ? "Checking…"
+                  : stageIndex === stages.length - 1
+                    ? "Check lesson"
+                    : "Check"}
+              </Button>
+            ) : (
+              <Button variant="primary" onClick={nextStage} disabled={busy}>
+                {stageIndex < stages.length - 1 ? "Continue" : "Finish lesson"}
+                <ChevronRight size={16} />
+              </Button>
+            )}
+          </div>
         </>
       )}
     </main>

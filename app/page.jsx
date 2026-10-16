@@ -3,10 +3,19 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { BookOpen, RefreshCw, Sparkles } from "lucide-react";
+import { BookOpen, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
+import WordInfo from "@/components/WordInfo";
 import { useToast } from "@/components/ToastProvider";
+
+function taskCount(content) {
+  if (!content) return 0;
+  const blanks = content.vocabulary?.blanks?.length ?? 0;
+  const translations = content.translations?.length ?? 0;
+  const reading = content.reading?.questions?.length ?? 0;
+  return blanks + translations + reading;
+}
 
 export default function HomePage() {
   const router = useRouter();
@@ -26,9 +35,30 @@ export default function HomePage() {
     load();
   }, [load]);
 
-  async function startLesson() {
+  async function changeDifficulty(value) {
+    setData((prev) => ({
+      ...prev,
+      difficulty: { ...prev.difficulty, value },
+    }));
+    const res = await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ difficulty: value }),
+    });
+    if (!res.ok) {
+      toast("Failed to update difficulty", "error");
+      return;
+    }
+    toast(`Difficulty set to ${value}`, "success");
+  }
+
+  async function startLesson(regenerate = false) {
     setBusy(true);
-    const res = await fetch("/api/lessons", { method: "POST" });
+    const res = await fetch("/api/lessons", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ regenerate }),
+    });
     const json = await res.json();
     setBusy(false);
 
@@ -57,6 +87,8 @@ export default function HomePage() {
 
   const words = data.wordsToLearn ?? [];
   const todayLesson = data.todayLesson;
+  const mistakesLessons = data.mistakesLessons ?? [];
+  const difficulty = data.difficulty;
   const hasWords = words.length > 0;
 
   return (
@@ -77,7 +109,7 @@ export default function HomePage() {
           <ul className="word-chips">
             {words.map((word) => (
               <li key={word.id} className="word-chip">
-                {word.word}
+                <WordInfo word={word} />
                 <span className="chip-level">L{word.level}</span>
               </li>
             ))}
@@ -92,6 +124,29 @@ export default function HomePage() {
           </p>
         )}
       </Card>
+
+      {difficulty && (
+        <Card>
+          <div className="block-head">
+            <h2>Difficulty</h2>
+            <span className="hint">suggested: {difficulty.suggested}</span>
+          </div>
+          <div className="fields">
+            <select
+              className="input"
+              value={difficulty.value}
+              onChange={(e) => changeDifficulty(e.target.value)}
+            >
+              {difficulty.options.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="hint">Calibrates the AI-generated lesson content.</p>
+        </Card>
+      )}
 
       <Card>
         <div className="block-head">
@@ -115,7 +170,7 @@ export default function HomePage() {
                 <RefreshCw size={16} />
                 Pass last lesson again
               </Button>
-              <Button onClick={startLesson} disabled={busy || !hasWords}>
+              <Button onClick={() => startLesson(true)} disabled={busy || !hasWords}>
                 <Sparkles size={16} />
                 Generate new lesson
               </Button>
@@ -129,13 +184,52 @@ export default function HomePage() {
                 ? ` ${words.length} word${words.length === 1 ? "" : "s"} to practice.`
                 : " Add words first to generate a lesson."}
             </p>
-            <Button variant="primary" onClick={startLesson} disabled={busy || !hasWords}>
+            <Button
+              variant="primary"
+              onClick={() => startLesson(false)}
+              disabled={busy || !hasWords}
+            >
               <BookOpen size={16} />
               Start today&apos;s lesson
             </Button>
           </>
         )}
       </Card>
+
+      {mistakesLessons.length > 0 && (
+        <Card>
+          <div className="block-head">
+            <h2>Mistakes</h2>
+            <span className="badge">{mistakesLessons.length}</span>
+          </div>
+          <p className="muted">
+            Practice the tasks you got wrong. Pass them all to clear them.
+          </p>
+          <ul className="mistake-lessons">
+            {mistakesLessons.map((lesson) => {
+              const count = taskCount(lesson.content);
+              return (
+                <li className="mistake-lesson" key={lesson.id}>
+                  <div>
+                    <span className="strong">{lesson.studyDate}</span>
+                    <span className="muted">
+                      {" "}
+                      · {count} task{count === 1 ? "" : "s"}
+                    </span>
+                    {lesson.status === "failed" ? (
+                      <span className="muted"> · needs retry</span>
+                    ) : null}
+                  </div>
+                  <Button onClick={() => router.push(`/lesson/${lesson.id}`)}>
+                    <TriangleAlert size={16} />
+                    Practice mistakes
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
     </main>
   );
 }

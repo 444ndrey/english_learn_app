@@ -13,15 +13,17 @@ const LEVELS_HINT = Object.entries(LEVEL_INTERVAL_DAYS)
 
 export default function AddWordForm({ onSubmit }) {
   const [word, setWord] = useState("");
+  const [translation, setTranslation] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function handleSubmit(event) {
     event.preventDefault();
     setBusy(true);
-    const result = await onSubmit({ word });
+    const result = await onSubmit({ word, translation });
     setBusy(false);
     if (result?.ok) {
       setWord("");
+      setTranslation("");
     }
   }
 
@@ -34,6 +36,11 @@ export default function AddWordForm({ onSubmit }) {
             value={word}
             onChange={(e) => setWord(e.target.value)}
             autoFocus
+          />
+          <Input
+            placeholder="Translation (optional)"
+            value={translation}
+            onChange={(e) => setTranslation(e.target.value)}
           />
           <Button variant="primary" type="submit" disabled={busy}>
             <Plus size={16} />

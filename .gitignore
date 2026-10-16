@@ -7,10 +7,14 @@
 
 # local database and runtime
 /data/english.db
-/data/english.db-journal
+/data/english.db-*
 
 # env
 .env
+
+# generated build artifacts
+/start.bat
+/aiko.ico
 
 # misc
 .DS_Store
