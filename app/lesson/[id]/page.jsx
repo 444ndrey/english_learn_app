@@ -15,11 +15,19 @@ import { reactionLine, stageCharacter } from "@/lib/reactions";
 const STAGE_LABELS = {
   vocabulary: "Vocabulary",
   translations: "Translation",
+  sentences: "Sentences",
   reading: "Reading",
 };
 
 function normalize(value) {
   return String(value ?? "").trim().toLowerCase();
+}
+
+function normalizeSentence(value) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 function acceptedForms(blank) {
@@ -129,6 +137,78 @@ function Mascot({ characterId, line }) {
   );
 }
 
+function SentenceBuilder({ task, selected, onChange, disabled, feedback }) {
+  const selectedSet = new Set(selected);
+  const placed = selected.map((index) => ({ index, text: task.blocks[index] }));
+  const bank = task.blocks
+    .map((text, index) => ({ index, text }))
+    .filter((block) => !selectedSet.has(block.index));
+
+  return (
+    <div className="sentence-task">
+      <div className="chat-bubble prompt-bubble">{task.prompt}</div>
+
+      <div
+        className={`sentence-line ${
+          disabled && feedback ? (feedback.correct ? "ok" : "err") : ""
+        }`}
+      >
+        {placed.length === 0 ? (
+          <span className="hint">Tap the words below to build the sentence.</span>
+        ) : (
+          placed.map((block) => (
+            <button
+              type="button"
+              key={block.index}
+              className="block placed"
+              onClick={() =>
+                onChange(selected.filter((value) => value !== block.index))
+              }
+              disabled={disabled}
+            >
+              {block.text}
+            </button>
+          ))
+        )}
+      </div>
+
+      <div className="block-bank">
+        {bank.map((block) => (
+          <button
+            type="button"
+            key={block.index}
+            className="block"
+            onClick={() => onChange([...selected, block.index])}
+            disabled={disabled}
+          >
+            {block.text}
+          </button>
+        ))}
+      </div>
+
+      {!disabled && selected.length > 0 && (
+        <button type="button" className="clear-blocks" onClick={() => onChange([])}>
+          Clear
+        </button>
+      )}
+
+      {disabled && feedback && (
+        <p className={`msg ${feedback.correct ? "ok" : "err"}`}>
+          {feedback.correct ? (
+            <>
+              <Check size={14} /> Correct
+            </>
+          ) : (
+            <>
+              <X size={14} /> Right answer: &ldquo;{task.answer}&rdquo;
+            </>
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function LessonPage() {
   const { id } = useParams();
   const { toast } = useToast();
@@ -137,10 +217,12 @@ export default function LessonPage() {
   const [loading, setLoading] = useState(true);
   const [blankAnswers, setBlankAnswers] = useState([]);
   const [translationAnswers, setTranslationAnswers] = useState([]);
+  const [sentenceAnswers, setSentenceAnswers] = useState([]);
   const [readingAnswers, setReadingAnswers] = useState([]);
   const [stageIndex, setStageIndex] = useState(0);
   const [stageChecked, setStageChecked] = useState(false);
   const [vocabFeedback, setVocabFeedback] = useState(null);
+  const [sentenceFeedback, setSentenceFeedback] = useState(null);
   const [aiFeedback, setAiFeedback] = useState([]);
   const [mascot, setMascot] = useState("");
   const [summary, setSummary] = useState(null);
@@ -164,11 +246,13 @@ export default function LessonPage() {
   const vocabulary = content?.vocabulary;
   const blanks = vocabulary?.blanks ?? [];
   const translations = content?.translations ?? [];
+  const sentences = content?.sentences ?? [];
   const reading = content?.reading ?? null;
 
   const stages = [];
-  if (vocabulary?.dialogue?.length) stages.push("vocabulary");
+  if (blanks.length) stages.push("vocabulary");
   if (translations.length) stages.push("translations");
+  if (sentences.length) stages.push("sentences");
   if (reading) stages.push("reading");
 
   const wordById = new Map(
@@ -199,6 +283,14 @@ export default function LessonPage() {
     });
   }
 
+  function setSentence(index, next) {
+    setSentenceAnswers((prev) => {
+      const copy = prev.map((value) => value ?? []);
+      copy[index] = next;
+      return copy;
+    });
+  }
+
   async function evaluate(items) {
     const res = await fetch("/api/evaluate", {
       method: "POST",
@@ -218,6 +310,14 @@ export default function LessonPage() {
     }
     if (stage === "translations") {
       return translations.every((_, i) => (translationAnswers[i] ?? "").trim());
+    }
+    if (stage === "sentences") {
+      return sentences.every((task, i) => {
+        const needed = String(task.answer ?? "")
+          .split(/\s+/)
+          .filter(Boolean).length;
+        return (sentenceAnswers[i]?.length ?? 0) >= needed;
+      });
     }
     if (stage === "reading") {
       return reading.questions.every((_, i) => (readingAnswers[i] ?? "").trim());
@@ -243,6 +343,34 @@ export default function LessonPage() {
         correct: isAccepted(blankAnswers[i], blank),
       }));
       setVocabFeedback(feedback);
+      resultsRef.current = [...resultsRef.current, ...feedback];
+      setMascot(
+        reactionLine(
+          stageCharacter(stageIndex),
+          feedback.filter((item) => item.correct).length,
+          feedback.length,
+          stageIndex,
+        ),
+      );
+      setStageChecked(true);
+      return;
+    }
+
+    if (stage === "sentences") {
+      const feedback = sentences.map((task, i) => {
+        const answer = (sentenceAnswers[i] ?? [])
+          .map((index) => task.blocks[index])
+          .join(" ");
+        return {
+          type: "sentences",
+          wordId: task.wordId,
+          label: task.word,
+          answer,
+          expected: task.answer,
+          correct: normalizeSentence(answer) === normalizeSentence(task.answer),
+        };
+      });
+      setSentenceFeedback(feedback);
       resultsRef.current = [...resultsRef.current, ...feedback];
       setMascot(
         reactionLine(
@@ -319,6 +447,7 @@ export default function LessonPage() {
       setStageIndex((i) => i + 1);
       setStageChecked(false);
       setAiFeedback([]);
+      setSentenceFeedback(null);
       setMascot("");
       return;
     }
@@ -329,10 +458,12 @@ export default function LessonPage() {
     resultsRef.current = [];
     setBlankAnswers([]);
     setTranslationAnswers([]);
+    setSentenceAnswers([]);
     setReadingAnswers([]);
     setStageIndex(0);
     setStageChecked(false);
     setVocabFeedback(null);
+    setSentenceFeedback(null);
     setAiFeedback([]);
     setMascot("");
     setSummary(null);
@@ -527,6 +658,24 @@ export default function LessonPage() {
                     </p>
                   )}
                 </div>
+              ))}
+            </Card>
+          )}
+
+          {stage === "sentences" && (
+            <Card>
+              <div className="block-head">
+                <h2>Build the sentence</h2>
+              </div>
+              {sentences.map((task, i) => (
+                <SentenceBuilder
+                  key={i}
+                  task={task}
+                  selected={sentenceAnswers[i] ?? []}
+                  onChange={(next) => setSentence(i, next)}
+                  disabled={stageChecked}
+                  feedback={sentenceFeedback?.[i]}
+                />
               ))}
             </Card>
           )}

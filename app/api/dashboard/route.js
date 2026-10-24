@@ -6,7 +6,7 @@ import {
   parseLesson,
   wordsToLearn,
 } from "@/lib/lessons";
-import { DIFFICULTIES, getDifficulty, suggestedDifficulty } from "@/lib/settings";
+import { getSettingsPayload } from "@/lib/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,10 +28,6 @@ export async function GET() {
     todayLesson: parseLesson(getTodayLesson()),
     lastLesson: parseLesson(getLastLesson()),
     mistakesLessons: getPendingMistakesLessons(5).map(parseLesson),
-    difficulty: {
-      value: getDifficulty(),
-      suggested: suggestedDifficulty(),
-      options: DIFFICULTIES,
-    },
+    settings: getSettingsPayload(),
   });
 }

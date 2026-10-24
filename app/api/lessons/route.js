@@ -9,7 +9,7 @@ import {
   wordsToLearn,
 } from "@/lib/lessons";
 import { lessons } from "@/lib/schema";
-import { getDifficulty } from "@/lib/settings";
+import { getDifficulty, getEnabledCharacterIds } from "@/lib/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,6 +62,7 @@ export async function POST(request) {
   try {
     const exercises = await generateLessonContent(snapshot, {
       difficulty: getDifficulty(),
+      mascotIds: getEnabledCharacterIds(),
     });
     db.update(lessons)
       .set({ exercisesJson: JSON.stringify(exercises) })

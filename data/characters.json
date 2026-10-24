@@ -6,7 +6,11 @@
       "gender": "female",
       "kind": "anime",
       "avatar": "/mascots/aiko.png",
-      "personality": ["playful", "teasing", "sharp"],
+      "personality": [
+        "playful",
+        "teasing",
+        "sharp"
+      ],
       "bio": "A playful anime girl who teases the user into learning faster.",
       "speechStyle": "teasing, witty, full of playful challenges",
       "color": "#f59e0b"
@@ -17,10 +21,48 @@
       "gender": "male",
       "kind": "anime",
       "avatar": "/mascots/ren.png",
-      "personality": ["depressed", "relatable", "sarcastic"],
+      "personality": [
+        "depressed",
+        "relatable",
+        "sarcastic"
+      ],
       "bio": "A tired anime guy who is sarcastic but genuinely wants to help.",
       "speechStyle": "deadpan, self-deprecating, dry humor",
       "color": "#6366f1"
+    },
+    {
+      "id": "yuki",
+      "name": "Yuki",
+      "gender": "female",
+      "kind": "anime",
+      "avatar": "/mascots/yuki.png",
+      "personality": [
+        "nerdy",
+        "shy",
+        "intelligent",
+        "socially awkward"
+      ],
+      "bio": "A shy anime girl who loves books, video games, and obscure trivia. She gets flustered talking to people but becomes surprisingly passionate when discussing her interests.",
+      "speechStyle": "soft-spoken, hesitant, awkward pauses, occasional nervous rambling",
+      "color": "#A78BFA"
+    },
+    {
+      "id": "max",
+      "name": "Max",
+      "gender": "male",
+      "kind": "anime",
+      "avatar": "/mascots/max.png",
+      "personality": [
+        "geeky",
+        "funny",
+        "laid-back",
+        "nerdy",
+        "friendly",
+        "slightly_lazy"
+      ],
+      "bio": "A chubby, lovable geek who lives for video games, anime, memes, and random internet trivia. He's always ready with a terrible joke, an unsolicited gaming tip",
+      "speechStyle": "casual, humorous, meme-heavy, playful sarcasm, gaming slang, occasional self-deprecating jokes",
+      "color": "#22C55E"
     }
   ]
 }

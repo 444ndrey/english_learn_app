@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { BookOpen, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
+import { BookOpen, RefreshCw, Settings, Sparkles, TriangleAlert } from "lucide-react";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
+import SettingsModal from "@/components/SettingsModal";
 import WordInfo from "@/components/WordInfo";
 import { useToast } from "@/components/ToastProvider";
 
@@ -13,8 +14,9 @@ function taskCount(content) {
   if (!content) return 0;
   const blanks = content.vocabulary?.blanks?.length ?? 0;
   const translations = content.translations?.length ?? 0;
+  const sentences = content.sentences?.length ?? 0;
   const reading = content.reading?.questions?.length ?? 0;
-  return blanks + translations + reading;
+  return blanks + translations + sentences + reading;
 }
 
 export default function HomePage() {
@@ -23,6 +25,8 @@ export default function HomePage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -35,21 +39,23 @@ export default function HomePage() {
     load();
   }, [load]);
 
-  async function changeDifficulty(value) {
-    setData((prev) => ({
-      ...prev,
-      difficulty: { ...prev.difficulty, value },
-    }));
+  async function saveSettings(values) {
+    setSavingSettings(true);
     const res = await fetch("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ difficulty: value }),
+      body: JSON.stringify(values),
     });
+    const json = await res.json();
+    setSavingSettings(false);
+
     if (!res.ok) {
-      toast("Failed to update difficulty", "error");
+      toast(json.error ?? "Failed to save settings", "error");
       return;
     }
-    toast(`Difficulty set to ${value}`, "success");
+    setData((prev) => ({ ...prev, settings: json }));
+    setSettingsOpen(false);
+    toast("Settings saved", "success");
   }
 
   async function startLesson(regenerate = false) {
@@ -88,16 +94,21 @@ export default function HomePage() {
   const words = data.wordsToLearn ?? [];
   const todayLesson = data.todayLesson;
   const mistakesLessons = data.mistakesLessons ?? [];
-  const difficulty = data.difficulty;
   const hasWords = words.length > 0;
 
   return (
     <main className="wrap">
       <header className="head">
         <h1>English Learning App</h1>
-        <Link href="/words" className="link">
-          Manage vocabulary
-        </Link>
+        <div className="head-actions">
+          <Button onClick={() => setSettingsOpen(true)}>
+            <Settings size={16} />
+            Settings
+          </Button>
+          <Link href="/words" className="link">
+            Manage vocabulary
+          </Link>
+        </div>
       </header>
 
       <Card>
@@ -124,29 +135,6 @@ export default function HomePage() {
           </p>
         )}
       </Card>
-
-      {difficulty && (
-        <Card>
-          <div className="block-head">
-            <h2>Difficulty</h2>
-            <span className="hint">suggested: {difficulty.suggested}</span>
-          </div>
-          <div className="fields">
-            <select
-              className="input"
-              value={difficulty.value}
-              onChange={(e) => changeDifficulty(e.target.value)}
-            >
-              {difficulty.options.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-          <p className="hint">Calibrates the AI-generated lesson content.</p>
-        </Card>
-      )}
 
       <Card>
         <div className="block-head">
@@ -229,6 +217,15 @@ export default function HomePage() {
             })}
           </ul>
         </Card>
+      )}
+
+      {settingsOpen && data.settings && (
+        <SettingsModal
+          settings={data.settings}
+          saving={savingSettings}
+          onSave={saveSettings}
+          onClose={() => setSettingsOpen(false)}
+        />
       )}
     </main>
   );
